@@ -1,37 +1,54 @@
-"""
-Database connection management using psycopg 3 (PostgreSQL) and sqlite3 (Local fallback).
-Allows 100% offline startup without Docker, and connects to Supabase/PostgreSQL when available.
-"""
-
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
-from typing import Generator, Any
+from typing import Generator, Any, Optional
 from dotenv import load_dotenv
 
 load_dotenv()
 
-db_env_url = os.getenv("DATABASE_URL") or os.getenv("SUPABASE_URL", "")
-DEFAULT_URL = db_env_url if db_env_url.startswith("postgres") else None
 
-READER_DSN = os.getenv("READER_DSN") or DEFAULT_URL or "postgresql://twin_reader:reader_password@localhost:5432/twin"
-WRITER_DSN = os.getenv("WRITER_DSN") or DEFAULT_URL or "postgresql://twin_writer:writer_password@localhost:5432/twin"
-ADMIN_DSN = os.getenv("ADMIN_DSN") or DEFAULT_URL or "postgresql://postgres:postgres@localhost:5432/twin"
+def _clean_dsn(dsn_or_url: Optional[str]) -> Optional[str]:
+    if not dsn_or_url:
+        return None
+    url = dsn_or_url.strip()
+    if url.startswith("postgresql://") or url.startswith("postgres://"):
+        return url
+    return None
+
+
+db_env_url = os.getenv("DATABASE_URL")
+if not db_env_url:
+    supa = os.getenv("SUPABASE_URL", "")
+    if supa.startswith("postgres"):
+        db_env_url = supa
+
+DEFAULT_URL = _clean_dsn(db_env_url)
+
+READER_DSN = _clean_dsn(os.getenv("READER_DSN")) or DEFAULT_URL
+WRITER_DSN = _clean_dsn(os.getenv("WRITER_DSN")) or DEFAULT_URL
+ADMIN_DSN = _clean_dsn(os.getenv("ADMIN_DSN")) or DEFAULT_URL
 LOCAL_DB_PATH = os.getenv("LOCAL_DB_PATH", "finance_twin.db")
 
 
 class SQLiteDictCursor:
-    """Wrapper around sqlite3.Cursor to provide dict-like rows and PostgreSQL %s parameter translation."""
+    """Wrapper around sqlite3.Cursor to provide dict-like rows and PostgreSQL syntax translation."""
     def __init__(self, cursor: sqlite3.Cursor):
         self.cursor = cursor
 
     def execute(self, sql: str, params: Any = None):
-        # Convert PostgreSQL syntax (finance.table -> table, %s -> ?, gen_random_uuid() -> hex)
+        # Convert PostgreSQL syntax (finance.table -> table, %s -> ?, ILIKE -> LIKE, typecasts)
         cleaned_sql = sql.replace("finance.", "").replace("sap_compat.", "")
+        cleaned_sql = re.sub(r'\bILIKE\b', 'LIKE', cleaned_sql, flags=re.IGNORECASE)
+        cleaned_sql = re.sub(r'::[a-zA-Z0-9_]+', '', cleaned_sql)
+        cleaned_sql = re.sub(r'EXTRACT\s*\(\s*DOW\s+FROM\s+([a-zA-Z0-9_]+)\s*\)', r"CAST(strftime('%w', \1) AS INTEGER)", cleaned_sql, flags=re.IGNORECASE)
         cleaned_sql = cleaned_sql.replace("%s", "?")
+
         if params is not None:
             if isinstance(params, list):
                 params = tuple(params)
+            elif not isinstance(params, (tuple, dict)):
+                params = (params,)
             return self.cursor.execute(cleaned_sql, params)
         return self.cursor.execute(cleaned_sql)
 
@@ -57,6 +74,11 @@ class SQLiteConnectionWrapper:
     """Wrapper around sqlite3.Connection to provide cursor context manager compatible with psycopg3."""
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
+        # Register custom SQLite functions for PostgreSQL compatibility
+        try:
+            self.conn.create_function("MOD", 2, lambda a, b: (float(a) % float(b)) if a is not None and b is not None else None)
+        except Exception:
+            pass
 
     @contextmanager
     def cursor(self):
@@ -84,61 +106,75 @@ class SQLiteConnectionWrapper:
         self.close()
 
 
+def _get_sqlite_conn() -> SQLiteConnectionWrapper:
+    conn = sqlite3.connect(LOCAL_DB_PATH)
+    return SQLiteConnectionWrapper(conn)
+
+
 @contextmanager
 def get_reader_connection() -> Generator[Any, None, None]:
     """Provides a read-only connection, falling back to local SQLite if PostgreSQL is unreachable."""
+    if READER_DSN:
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+            conn = psycopg.connect(READER_DSN, row_factory=dict_row, connect_timeout=2)
+            try:
+                yield conn
+                return
+            finally:
+                conn.close()
+        except Exception:
+            pass
+    # Fallback to local SQLite database
+    conn = _get_sqlite_conn()
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(READER_DSN, row_factory=dict_row, connect_timeout=1)
-        try:
-            yield conn
-        finally:
-            conn.close()
-    except Exception:
-        # Fallback to local SQLite database
-        conn = sqlite3.connect(LOCAL_DB_PATH)
-        try:
-            yield SQLiteConnectionWrapper(conn)
-        finally:
-            conn.close()
+        yield conn
+    finally:
+        conn.close()
 
 
 @contextmanager
 def get_writer_connection() -> Generator[Any, None, None]:
     """Provides a validated write connection, falling back to local SQLite if PostgreSQL is unreachable."""
+    if WRITER_DSN:
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+            conn = psycopg.connect(WRITER_DSN, row_factory=dict_row, connect_timeout=2)
+            try:
+                yield conn
+                return
+            finally:
+                conn.close()
+        except Exception:
+            pass
+    # Fallback to local SQLite database
+    conn = _get_sqlite_conn()
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(WRITER_DSN, row_factory=dict_row, connect_timeout=1)
-        try:
-            yield conn
-        finally:
-            conn.close()
-    except Exception:
-        # Fallback to local SQLite database
-        conn = sqlite3.connect(LOCAL_DB_PATH)
-        try:
-            yield SQLiteConnectionWrapper(conn)
-        finally:
-            conn.close()
+        yield conn
+    finally:
+        conn.close()
 
 
 @contextmanager
 def get_admin_connection() -> Generator[Any, None, None]:
     """Provides an admin connection, falling back to local SQLite if PostgreSQL is unreachable."""
+    if ADMIN_DSN:
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+            conn = psycopg.connect(ADMIN_DSN, row_factory=dict_row, connect_timeout=2)
+            try:
+                yield conn
+                return
+            finally:
+                conn.close()
+        except Exception:
+            pass
+    # Fallback to local SQLite database
+    conn = _get_sqlite_conn()
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        conn = psycopg.connect(ADMIN_DSN, row_factory=dict_row, connect_timeout=1)
-        try:
-            yield conn
-        finally:
-            conn.close()
-    except Exception:
-        # Fallback to local SQLite database
-        conn = sqlite3.connect(LOCAL_DB_PATH)
-        try:
-            yield SQLiteConnectionWrapper(conn)
-        finally:
-            conn.close()
+        yield conn
+    finally:
+        conn.close()

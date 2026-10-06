@@ -26,27 +26,45 @@ def get_trial_balance(
     """Retrieve trial balance summing per-account debits and credits up to the given period."""
     with get_reader_connection() as conn:
         with conn.cursor() as cur:
-            # Main trial balance via database function
-            cur.execute(
-                """
-                SELECT t.gl_account, txt.name AS account_name, a.account_group, a.is_balance_sheet,
-                       t.debit_total, t.credit_total, t.balance
-                FROM finance.trial_balance('200', %s, %s, %s, %s) t
-                LEFT JOIN finance.gl_accounts a ON a.client_id = '200' AND a.gl_account = t.gl_account
-                LEFT JOIN finance.gl_account_texts txt ON txt.client_id = '200' AND txt.gl_account = t.gl_account AND txt.language = 'EN'
-                ORDER BY t.gl_account
-                """,
-                (company_code, fiscal_year, period, ledger),
-            )
-            rows = cur.fetchall()
+            # Query trial balance by aggregating journal_entry_lines up to the given posting period
+            try:
+                cur.execute(
+                    """
+                    SELECT l.gl_account, txt.name AS account_name, a.account_group, a.is_balance_sheet,
+                           SUM(CASE WHEN l.debit_credit_indicator = 'D' THEN l.amount_company_currency ELSE 0 END) AS debit_total,
+                           SUM(CASE WHEN l.debit_credit_indicator = 'C' THEN l.amount_company_currency ELSE 0 END) AS credit_total,
+                           SUM(l.amount_company_currency) AS balance
+                    FROM finance.journal_entry_lines l
+                    LEFT JOIN finance.gl_accounts a ON a.client_id = l.client_id AND a.gl_account = l.gl_account
+                    LEFT JOIN finance.gl_account_texts txt ON txt.client_id = l.client_id AND txt.gl_account = l.gl_account AND txt.language = 'EN'
+                    WHERE l.company_code = %s AND l.fiscal_year = %s AND l.posting_period <= %s AND l.ledger = %s
+                    GROUP BY l.gl_account, txt.name, a.account_group, a.is_balance_sheet
+                    ORDER BY l.gl_account
+                    """,
+                    (company_code, fiscal_year, period, ledger),
+                )
+                rows = cur.fetchall()
+            except Exception:
+                cur.execute(
+                    """
+                    SELECT t.gl_account, txt.name AS account_name, a.account_group, a.is_balance_sheet,
+                           t.debit_total, t.credit_total, t.balance
+                    FROM finance.trial_balance('200', %s, %s, %s, %s) t
+                    LEFT JOIN finance.gl_accounts a ON a.client_id = '200' AND a.gl_account = t.gl_account
+                    LEFT JOIN finance.gl_account_texts txt ON txt.client_id = '200' AND txt.gl_account = t.gl_account AND txt.language = 'EN'
+                    ORDER BY t.gl_account
+                    """,
+                    (company_code, fiscal_year, period, ledger),
+                )
+                rows = cur.fetchall()
 
             # Add abnormal balance flags (e.g. Asset/Expense with credit balance, Liability/Revenue with debit balance)
             total_debits = 0.0
             total_credits = 0.0
             for r in rows:
-                bal = float(r["balance"])
-                total_debits += float(r["debit_total"])
-                total_credits += float(r["credit_total"])
+                bal = float(r.get("balance") or 0.0)
+                total_debits += float(r.get("debit_total") or 0.0)
+                total_credits += float(r.get("credit_total") or 0.0)
                 
                 is_bs = r.get("is_balance_sheet", True)
                 grp = r.get("account_group", "")
@@ -93,7 +111,7 @@ def get_account_line_items(
             cur.execute(
                 """
                 SELECT l.company_code, l.fiscal_year, l.document_number, l.line_number,
-                       l.posting_date, l.posting_period, l.document_type,
+                       l.posting_date, l.posting_period, h.document_type,
                        l.debit_credit_indicator, l.amount_company_currency,
                        l.cost_center, l.profit_center, l.line_text,
                        SUM(l.amount_company_currency) OVER (
@@ -101,6 +119,9 @@ def get_account_line_items(
                            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
                        ) AS running_balance
                 FROM finance.journal_entry_lines l
+                JOIN finance.journal_entry_headers h
+                  ON h.client_id = l.client_id AND h.company_code = l.company_code
+                 AND h.fiscal_year = l.fiscal_year AND h.document_number = l.document_number
                 WHERE l.company_code = %s AND l.gl_account = %s AND l.fiscal_year = %s
                   AND l.posting_period BETWEEN %s AND %s AND l.ledger = %s
                 ORDER BY l.posting_date, l.document_number, l.line_number
@@ -205,23 +226,32 @@ def list_open_items(
                 f"""
                 SELECT company_code, fiscal_year, document_number, line_number,
                        vendor_id, customer_id, gl_account, posting_date,
-                       amount_company_currency,
-                       (%s - posting_date) AS age_days
+                       amount_company_currency
                 FROM finance.journal_entry_lines
                 WHERE {where_str}
                 ORDER BY posting_date ASC
                 LIMIT %s OFFSET %s
                 """,
-                [ref_date] + params + [limit + 1, offset],
+                params + [limit + 1, offset],
             )
             rows = cur.fetchall()
+            for r in rows:
+                p_date = r.get("posting_date")
+                if isinstance(p_date, str):
+                    from datetime import datetime
+                    try:
+                        p_date = datetime.strptime(p_date[:10], "%Y-%m-%d").date()
+                    except Exception:
+                        p_date = None
+                r["age_days"] = (ref_date - p_date).days if (p_date and hasattr(ref_date, '__sub__')) else 0
+
             truncated = len(rows) > limit
             items = rows[:limit]
 
             return {
                 "company_code": company_code,
                 "account_type": account_type,
-                "as_of_date": ref_date.isoformat(),
+                "as_of_date": ref_date.isoformat() if hasattr(ref_date, "isoformat") else str(ref_date),
                 "note": "Age is calculated from posting_date (payment terms deferred to Phase 2).",
                 "items": items,
                 "next_cursor": (offset + limit) if truncated else None,
@@ -243,29 +273,37 @@ def compare_ledgers(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                WITH a AS (
-                    SELECT document_number, line_number, gl_account, amount_company_currency
-                    FROM finance.journal_entry_lines
-                    WHERE company_code = %s AND fiscal_year = %s AND posting_period = %s AND ledger = %s
-                ),
-                b AS (
-                    SELECT document_number, line_number, gl_account, amount_company_currency
-                    FROM finance.journal_entry_lines
-                    WHERE company_code = %s AND fiscal_year = %s AND posting_period = %s AND ledger = %s
-                )
-                SELECT COALESCE(a.document_number, b.document_number) AS document_number,
-                       COALESCE(a.line_number, b.line_number) AS line_number,
-                       COALESCE(a.gl_account, b.gl_account) AS gl_account,
-                       a.amount_company_currency AS amount_ledger_a,
-                       b.amount_company_currency AS amount_ledger_b
-                FROM a FULL OUTER JOIN b 
-                  ON a.document_number = b.document_number AND a.line_number = b.line_number
-                WHERE a.amount_company_currency IS DISTINCT FROM b.amount_company_currency
-                ORDER BY document_number, line_number
+                SELECT document_number, line_number, gl_account, ledger, amount_company_currency
+                FROM finance.journal_entry_lines
+                WHERE company_code = %s AND fiscal_year = %s AND posting_period = %s
+                  AND ledger IN (%s, %s)
+                ORDER BY document_number, line_number, ledger
                 """,
-                (company_code, fiscal_year, period, ledger_a, company_code, fiscal_year, period, ledger_b),
+                (company_code, fiscal_year, period, ledger_a, ledger_b),
             )
-            differences = cur.fetchall()
+            all_lines = cur.fetchall()
+
+            # Group by document_number, line_number
+            groups: dict[tuple, dict] = {}
+            for l in all_lines:
+                key = (l["document_number"], l["line_number"], l["gl_account"])
+                if key not in groups:
+                    groups[key] = {"amount_ledger_a": None, "amount_ledger_b": None}
+                if l["ledger"] == ledger_a:
+                    groups[key]["amount_ledger_a"] = float(l["amount_company_currency"])
+                elif l["ledger"] == ledger_b:
+                    groups[key]["amount_ledger_b"] = float(l["amount_company_currency"])
+
+            differences = []
+            for (doc_num, line_num, gl_acc), val in groups.items():
+                if val["amount_ledger_a"] != val["amount_ledger_b"]:
+                    differences.append({
+                        "document_number": doc_num,
+                        "line_number": line_num,
+                        "gl_account": gl_acc,
+                        "amount_ledger_a": val["amount_ledger_a"],
+                        "amount_ledger_b": val["amount_ledger_b"],
+                    })
 
             return {
                 "company_code": company_code,

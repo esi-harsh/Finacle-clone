@@ -174,9 +174,24 @@ def lookup_master_data(
     session_id: str = "default",
 ) -> dict[str, Any]:
     """Retrieve master data records and control flags (G/L accounts, cost centers, profit centers, etc.)."""
+    raw_type = (object_type or "").lower().strip()
+    # Normalize aliases and plural forms
+    if raw_type in ("gl_account", "gl_accounts", "account", "accounts", "gl", "glaccount"):
+        norm_type = "gl_account"
+    elif raw_type in ("cost_center", "cost_centers", "cost_centre", "cost_centres", "costcenter"):
+        norm_type = "cost_center"
+    elif raw_type in ("profit_center", "profit_centers", "profit_centre", "profit_centres", "profitcenter"):
+        norm_type = "profit_center"
+    elif raw_type in ("document_type", "document_types", "doc_type", "doc_types", "doctype"):
+        norm_type = "document_type"
+    elif raw_type in ("company_code", "company_codes", "company", "companies", "companycode"):
+        norm_type = "company_code"
+    else:
+        norm_type = raw_type
+
     with get_reader_connection() as conn:
         with conn.cursor() as cur:
-            if object_type == "gl_account":
+            if norm_type == "gl_account":
                 if id:
                     acc_num = str(id).zfill(10)
                     cur.execute(
@@ -209,35 +224,35 @@ def lookup_master_data(
                     )
                     return {"object_type": object_type, "records": cur.fetchall()}
 
-            elif object_type == "cost_center":
+            elif norm_type == "cost_center":
                 cur.execute(
                     "SELECT * FROM finance.cost_centers WHERE cost_center = %s OR name ILIKE %s",
                     (id, f"%{search_text or id}%"),
                 )
                 return {"object_type": object_type, "records": cur.fetchall()}
 
-            elif object_type == "profit_center":
+            elif norm_type == "profit_center":
                 cur.execute(
                     "SELECT * FROM finance.profit_centers WHERE profit_center = %s OR name ILIKE %s",
                     (id, f"%{search_text or id}%"),
                 )
                 return {"object_type": object_type, "records": cur.fetchall()}
 
-            elif object_type == "document_type":
+            elif norm_type == "document_type":
                 cur.execute(
                     "SELECT * FROM finance.document_types WHERE document_type = %s OR name ILIKE %s",
                     (id, f"%{search_text or id}%"),
                 )
                 return {"object_type": object_type, "records": cur.fetchall()}
 
-            elif object_type == "company_code":
+            elif norm_type == "company_code":
                 cur.execute(
                     "SELECT * FROM finance.company_codes WHERE company_code = %s",
                     (id,),
                 )
                 return {"object_type": object_type, "records": cur.fetchall()}
 
-            raise FinanceTwinError("INVALID_OBJECT_TYPE", f"Object type {object_type} is not supported.")
+            raise FinanceTwinError("INVALID_OBJECT_TYPE", f"Object type '{object_type}' is not supported. Valid types: gl_account, cost_center, profit_center, document_type, company_code.")
 
 
 @log_tool_call("get_period_status")

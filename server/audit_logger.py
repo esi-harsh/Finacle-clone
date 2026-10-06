@@ -46,15 +46,18 @@ def log_tool_call(tool_name: str) -> Callable:
             finally:
                 duration_ms = int((time.time() - start_time) * 1000)
                 try:
+                    import uuid
+                    call_id = str(uuid.uuid4())
                     with get_writer_connection() as conn:
                         with conn.cursor() as cur:
                             cur.execute(
                                 """
                                 INSERT INTO finance.tool_call_log 
-                                  (session_id, tool, input_json, output_summary, error_code, duration_ms)
-                                VALUES (%s, %s, %s, %s, %s, %s)
+                                  (call_id, session_id, tool, input_json, output_summary, error_code, duration_ms)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s)
                                 """,
                                 (
+                                    call_id,
                                     session_id,
                                     tool_name,
                                     json.dumps(input_data),
