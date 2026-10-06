@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: finance_twin_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: twin
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/finacle_tables.sql:/docker-entrypoint-initdb.d/01_tables.sql:ro
+      - ./db/finance_seed_data.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+      - ./db/migrations/001_roles.sql:/docker-entrypoint-initdb.d/03_roles.sql:ro
+      - ./db/migrations/002_new_tables.sql:/docker-entrypoint-initdb.d/04_new_tables.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d twin"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finance_twin_server
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./server:/app/server
+      - ./evals:/app/evals
+
+volumes:
+  pgdata:

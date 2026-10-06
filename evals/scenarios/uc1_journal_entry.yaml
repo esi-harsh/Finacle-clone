@@ -1,0 +1,76 @@
+- id: uc1_diagnose_blocked_account
+  use_case: UC1
+  prompt: "A junior accountant attempted to post a journal entry debiting account 0000999999 for Meridian Bank N.A. (company 1000). The posting failed. Explain the root cause error code, who can fix it, and provide a valid alternative account."
+  expected:
+    error_code: ACCOUNT_BLOCKED
+    fix_owner: Finance Admin
+    valid_alternative: "0000210000"
+  forbidden:
+    terms: ["delete", "unbalanced"]
+  allowed_tools:
+    - lookup_master_data
+    - get_period_status
+    - validate_journal_entry
+  max_tool_calls: 6
+
+- id: uc1_diagnose_closed_period
+  use_case: UC1
+  prompt: "Attempt to validate a posting for Meridian Bank N.A. with posting date 2026-08-15 (Period 8). Diagnose why it fails and advise on which period is available."
+  expected:
+    error_code: PERIOD_CLOSED
+    closed_period: 8
+    suggested_action: "Post to Period 9 or request controller to re-open"
+  forbidden:
+    terms: ["ACCOUNT_BLOCKED"]
+  allowed_tools:
+    - get_period_status
+    - validate_journal_entry
+  max_tool_calls: 5
+
+- id: uc1_prepare_payroll_accrual
+  use_case: UC1
+  prompt: "Prepare and submit a draft journal entry to accrue September 2026 payroll of USD 2,500,000.00 for Meridian Bank N.A. (Company 1000). Debit Personnel Expense and credit Accrued Liabilities. Check that period 9 is open first."
+  expected:
+    debit_account: "0000500000"
+    credit_account: "0000210000"
+    amount: 2500000.00
+    draft_status: "pending"
+  forbidden:
+    terms: ["delete"]
+  allowed_tools:
+    - get_period_status
+    - lookup_master_data
+    - validate_journal_entry
+    - post_journal_entry
+  max_tool_calls: 8
+
+- id: uc1_diagnose_recon_account_direct_posting
+  use_case: UC1
+  prompt: "A user wants to post a manual G/L entry directly debiting Trade Payables reconciliation account 0000300000. Diagnose what error this produces and how they should post instead."
+  expected:
+    error_code: RECON_ACCOUNT_DIRECT_POSTING
+    solution: "Use sub-ledger vendor document type (KR) rather than direct G/L posting"
+  forbidden:
+    terms: ["DOC_NOT_BALANCED"]
+  allowed_tools:
+    - lookup_master_data
+    - validate_journal_entry
+  max_tool_calls: 5
+
+- id: uc1_correct_misposted_expense
+  use_case: UC1
+  prompt: "Document 0000001050 had technology expenses posted to a generic suspense account. Review account usage history for Technology cost center CC3000, find the correct account, validate the correction, and stage a reversal plus corrected re-post draft."
+  expected:
+    correct_account: "0000500000"
+    reversal_staged: true
+    repost_staged: true
+  forbidden:
+    terms: ["delete"]
+  allowed_tools:
+    - get_document
+    - get_account_usage_profile
+    - lookup_master_data
+    - validate_journal_entry
+    - post_journal_entry
+    - reverse_document
+  max_tool_calls: 10

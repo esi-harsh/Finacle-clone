@@ -1,0 +1,67 @@
+- id: uc3_trial_balance_integrity
+  use_case: UC3
+  prompt: "Verify the trial balance for Meridian Bank N.A. (Company 1000) for Period 9 in Ledger 0L. Confirm debits equal credits and investigate any accounts flagged as abnormal."
+  expected:
+    debits_equal_credits: true
+    net_difference: 0.0
+    abnormal_accounts_reviewed: true
+  forbidden:
+    terms: ["out of balance"]
+  allowed_tools:
+    - get_trial_balance
+    - get_account_line_items
+  max_tool_calls: 6
+
+- id: uc3_cost_center_flux_analysis
+  use_case: UC3
+  prompt: "Analyze cost center movements for Meridian Bank N.A. comparing Period 9 against Period 8. Identify the top expense drivers."
+  expected:
+    flux_identified: true
+    top_movers_stated: true
+  forbidden:
+    terms: ["invented"]
+  allowed_tools:
+    - get_period_summary
+    - get_account_line_items
+  max_tool_calls: 8
+
+- id: uc3_overstated_accrual_chain
+  use_case: UC3
+  prompt: "Investigate interest expense accruals for September 2026. Follow reversal links (document type AB) and compute the net final expense impact."
+  expected:
+    reversal_chain_followed: true
+    net_impact_stated: true
+  forbidden:
+    terms: ["deleted"]
+  allowed_tools:
+    - search_documents
+    - get_document
+  max_tool_calls: 8
+
+- id: uc3_parallel_ledger_reconciliation
+  use_case: UC3
+  prompt: "Reconcile US GAAP (Ledger 0L) against IFRS (Ledger 2L) for Period 9. Identify all differences and explain the accounting driver."
+  expected:
+    ledger_differences_found: true
+    ifrs_adjustments_explained: true
+  forbidden:
+    terms: ["out of sync"]
+  allowed_tools:
+    - compare_ledgers
+    - get_document
+  max_tool_calls: 6
+
+- id: uc3_posting_anomalies_scan
+  use_case: UC3
+  prompt: "Run an anomaly scan for Meridian Bank N.A. for Period 9. Report on weekend postings, round amounts, and rare account entries while filtering out legitimate recurring entries."
+  expected:
+    weekend_postings_found: true
+    rare_accounts_found: true
+    benign_lookalikes_distinguished: true
+  forbidden:
+    terms: ["fraud confirmed"]
+  allowed_tools:
+    - scan_journal_anomalies
+    - get_document
+    - get_period_status
+  max_tool_calls: 8
