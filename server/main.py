@@ -1,12 +1,12 @@
 """
 Finance Twin MCP Server Entrypoint.
-Exposes the 15 MCP tools over stdio (default) or streamable HTTP transport.
+Exposes the 15 MCP tools over Streamable HTTP (SSE / FastMCP) or stdio transport.
 """
 
 import os
 from datetime import date
 from typing import Any, Optional
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 from dotenv import load_dotenv
 
 from server.tools.lookup import (
@@ -36,10 +36,7 @@ from server.tools.write import (
 load_dotenv()
 
 # Initialize FastMCP Server
-mcp = FastMCP(
-    "Finance Twin Agent Platform",
-    dependencies=["psycopg", "pydantic", "python-dotenv"]
-)
+mcp = FastMCP("Finance Twin Agent Platform")
 
 # ---------------------------------------------------------
 # Group 1: Lookup Tools (SAP: FB03, FBL3N, FS00/BP, OB52)
@@ -307,10 +304,19 @@ def tool_reverse_document(
     )
 
 
-if __name__ == "__main__":
-    transport = os.getenv("MCP_TRANSPORT", "stdio")
+def main():
+    """Main function for CLI and module execution."""
+    transport = os.getenv("MCP_TRANSPORT", "http").lower()
+    host = os.getenv("MCP_SERVER_HOST", os.getenv("MCP_HOST", "0.0.0.0"))
+    port = int(os.getenv("MCP_SERVER_PORT", os.getenv("MCP_PORT", "8000")))
+
     if transport == "stdio":
+        print("[MCP SERVER] Starting in stdio transport mode...")
         mcp.run(transport="stdio")
     else:
-        port = int(os.getenv("MCP_PORT", "8000"))
-        mcp.run(transport="sse", port=port)
+        print(f"[MCP SERVER] Starting Streamable HTTP (SSE) server at http://{host}:{port}/sse ...")
+        mcp.run(transport="sse", host=host, port=port)
+
+
+if __name__ == "__main__":
+    main()

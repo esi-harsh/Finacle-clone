@@ -10,7 +10,7 @@ from typing import Any, Optional
 from datetime import date
 from server.db import get_writer_connection, get_reader_connection
 from server.errors import FinanceTwinError, map_db_error
-from server.logging import log_tool_call
+from server.audit_logger import log_tool_call
 
 
 @log_tool_call("validate_journal_entry")

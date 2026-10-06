@@ -40,7 +40,7 @@ Tags: **[V]** verified against the MCP spec or a named source, **[D]** design de
 Target MCP spec **2026-07-28**, with graceful fallback for clients on 2025-11-25. **[V]** Facts from the spec that drive design:
 
 - **Stateless core.** Each request carries protocol version and client capabilities in `_meta`. Consequence: **twin state lives in the database, never in a connection.** Every tool takes an explicit `session_id`. **[V][D]**
-- **Streamable HTTP** with required `Mcp-Method` and `Mcp-Name` request headers; HTTP+SSE is deprecated. For local/eval runs, stdio is used. **[C]** confirm transport before building.
+- **Streamable HTTP (SSE)**: FastMCP server runs on `http://0.0.0.0:8000/sse` for remote and containerized client access. **[V][D]**
 - **Structured tool output**: every tool declares an `outputSchema` (JSON Schema 2020-12) and returns `structuredContent` plus a text mirror. **[V]**
 - **Input validation failures** are returned as tool execution errors (`isError: true`), not protocol errors, so the model can correct itself. **[V]**
 - **Authorization**: static tokens for local dev; OAuth resource server for hosted use. A token with `twin:agent` scope cannot reach `/mcp/control`. **[V][D]**
@@ -54,7 +54,7 @@ Target MCP spec **2026-07-28**, with graceful fallback for clients on 2025-11-25
 
 ```
                     +---------------------------------------------------+
-  Agent (Claude) -> | /mcp/finance   Finance surface (prod-parity)      |
+  Agent (Gemini) -> | http://host:8000/sse (Finance MCP Surface)        |
                     +---------------------------------------------------+
                                           |
                                   [ Twin engine ]

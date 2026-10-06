@@ -11,7 +11,7 @@ from typing import Any, Optional
 from datetime import date
 from server.db import get_reader_connection
 from server.errors import FinanceTwinError
-from server.logging import log_tool_call
+from server.audit_logger import log_tool_call
 
 
 @log_tool_call("get_trial_balance")
