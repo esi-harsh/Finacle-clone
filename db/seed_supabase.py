@@ -67,6 +67,10 @@ def seed_supabase():
     try:
         with psycopg.connect(conn_str, autocommit=True) as conn:
             with conn.cursor() as cur:
+                print("[*] Resetting old schemas (finance, sap_compat)...")
+                cur.execute("DROP SCHEMA IF EXISTS finance CASCADE; DROP SCHEMA IF EXISTS sap_compat CASCADE; CREATE SCHEMA finance;")
+                print("[+] Schemas reset.")
+
                 print("[*] 1/2 Loading schema from db/finacle_tables.sql...")
                 with open("db/finacle_tables.sql", "r", encoding="utf-8") as f:
                     schema_sql = f.read()
