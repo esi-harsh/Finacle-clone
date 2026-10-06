@@ -311,11 +311,14 @@ def main():
     port = int(os.getenv("MCP_SERVER_PORT", os.getenv("MCP_PORT", "8000")))
 
     if transport == "stdio":
-        print("[MCP SERVER] Starting in stdio transport mode...")
         mcp.run(transport="stdio")
-    else:
-        print(f"[MCP SERVER] Starting Streamable HTTP (SSE) server at http://{host}:{port}/sse ...")
+    elif transport == "sse":
+        print(f"[MCP SERVER] Starting SSE server at http://{host}:{port}/sse ...")
         mcp.run(transport="sse", host=host, port=port)
+    else:
+        # Default to Streamable HTTP (/mcp endpoint)
+        print(f"[MCP SERVER] Starting Streamable HTTP server at http://{host}:{port}/mcp ...")
+        mcp.run(transport="http", host=host, port=port)
 
 
 if __name__ == "__main__":
