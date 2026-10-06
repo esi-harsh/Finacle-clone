@@ -60,11 +60,50 @@ This runs the database on port `5432` and automatically executes:
 
 ---
 
-### Option C: Supabase Setup
-1. Create a new project in [Supabase](https://supabase.com).
-2. Open the **SQL Editor** in your Supabase Dashboard.
-3. Run `db/finacle_tables.sql` and `db/finance_seed_data.sql`.
-4. Copy your project connection string into `.env` as `SUPABASE_URL` / `DATABASE_URL`.
+### Option C: Cloud Supabase Setup & Automated Seeding
+
+Follow these steps to connect and seed your cloud Supabase PostgreSQL instance:
+
+#### 1. Create a Supabase Project
+1. Log in to [Supabase](https://supabase.com) and create a new project.
+2. Note down your database password.
+
+#### 2. Get Your PostgreSQL Connection String
+1. In your Supabase Dashboard, navigate to **Project Settings** (gear icon) -> **Database**.
+2. Scroll to the **Connection string** section and select the **URI** tab.
+3. Choose either **Session Mode** (port `5432`) or **Transaction Mode** (port `6543`).
+4. Copy the URI string, which follows this format:
+   ```text
+   postgresql://postgres.<project-ref>:[YOUR-PASSWORD]@aws-0-<region>.pooler.supabase.com:6543/postgres
+   ```
+
+#### 3. Configure `.env`
+1. Copy `.env.example` to `.env` if you haven't already:
+   ```bash
+   cp .env.example .env
+   ```
+2. Paste your PostgreSQL connection URI into `.env` under `SUPABASE_URL` or `DATABASE_URL` (ensure you replace `[YOUR-PASSWORD]` with your actual password):
+   ```env
+   SUPABASE_URL=postgresql://postgres.<project-ref>:<your-password>@aws-0-<region>.pooler.supabase.com:6543/postgres
+   ```
+
+#### 4. Run the Automated Seeder
+Execute the Supabase database seeder script using `uv`:
+```bash
+uv run python db/seed_supabase.py
+```
+*(Or with standard python: `python db/seed_supabase.py`)*
+
+This script automatically:
+- Resets previous `finance` and `sap_compat` schemas cleanly.
+- Executes `db/finacle_tables.sql` (creating 24 tables, SAP views, constraints, and audit triggers).
+- Executes `db/finance_seed_data.sql` (seeding 806 documents, 4,090 line items, posting controls, and master data for Client `200`).
+
+#### 5. Verify the Connection
+Run the live tool verification suite to confirm all 15 MCP tools interact properly with your seeded Supabase instance:
+```bash
+uv run python tests/test_tools.py
+```
 
 ---
 
@@ -79,7 +118,7 @@ The twin is initialized with realistic, messy enterprise financial records:
   - Exact duplicate vendor invoice pairs (open copy vs. paid copy).
   - Fuzzy duplicate pairs (typos in reference, date shifts, ±1% amount differences).
   - Decoy invoice pairs (identical invoice number across *different* suppliers — must not be flagged).
-  - Blocked legacy suspense accounts (`0000999999`) and blocked cost centers.
+  - Blocked legacy suspense accounts (`0000199000`) and blocked cost centers.
   - Multi-ledger adjustments posted only to `2L` (IFRS lease accounting).
   - Out-of-pattern weekend and round-amount postings.
 
