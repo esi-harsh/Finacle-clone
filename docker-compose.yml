@@ -14,8 +14,6 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./db/finacle_tables.sql:/docker-entrypoint-initdb.d/01_tables.sql:ro
       - ./db/finance_seed_data.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
-      - ./db/migrations/001_roles.sql:/docker-entrypoint-initdb.d/03_roles.sql:ro
-      - ./db/migrations/002_new_tables.sql:/docker-entrypoint-initdb.d/04_new_tables.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d twin"]
       interval: 5s
@@ -36,7 +34,6 @@ services:
       - "8000:8000"
     volumes:
       - ./server:/app/server
-      - ./evals:/app/evals
 
 volumes:
   pgdata:

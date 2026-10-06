@@ -57,15 +57,13 @@ docker compose up -d
 This runs the database on port `5432` and automatically executes:
 1. `db/finacle_tables.sql`: Phase 1 DDL with 24 tables under `finance` schema and `sap_compat` views.
 2. `db/finance_seed_data.sql`: Meridian Financial Group synthetic seed (Client `200`).
-3. `db/migrations/001_roles.sql`: Least-privilege roles (`twin_reader` and `twin_writer`).
-4. `db/migrations/002_new_tables.sql`: `tool_call_log`, `draft_entries`, and `eval_scenarios`.
 
 ---
 
 ### Option C: Supabase Setup
 1. Create a new project in [Supabase](https://supabase.com).
 2. Open the **SQL Editor** in your Supabase Dashboard.
-3. Run `db/finacle_tables.sql`, `db/finance_seed_data.sql`, and `db/migrations/002_new_tables.sql`.
+3. Run `db/finacle_tables.sql` and `db/finance_seed_data.sql`.
 4. Copy your project connection string into `.env` as `SUPABASE_URL` / `DATABASE_URL`.
 
 ---
