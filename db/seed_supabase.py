@@ -14,14 +14,34 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 
 
+import urllib.parse
+
+
+def clean_pg_url(url: str) -> str:
+    if not url or not url.startswith("postgres"):
+        return url
+    prefix, rest = url.split("://", 1)
+    if "@" not in rest:
+        return url
+    userinfo, hostinfo = rest.rsplit("@", 1)
+    if ":" in userinfo:
+        user, password = userinfo.split(":", 1)
+        encoded_password = urllib.parse.quote(password)
+        return f"{prefix}://{user}:{encoded_password}@{hostinfo}"
+    return url
+
+
 def get_connection_string():
-    # If DATABASE_URL starts with postgresql://, use it directly
-    if DATABASE_URL and DATABASE_URL.startswith("postgres"):
-        return DATABASE_URL
+    raw_url = os.getenv("DATABASE_URL") or os.getenv("SUPABASE_URL", "")
+    if not raw_url:
+        return None
+
+    if raw_url.startswith("postgres"):
+        return clean_pg_url(raw_url)
     
     # Check if SUPABASE_URL was erroneously set as a web URL
-    if SUPABASE_URL.startswith("http"):
-        project_ref = SUPABASE_URL.replace("https://", "").split(".")[0]
+    if raw_url.startswith("http"):
+        project_ref = raw_url.replace("https://", "").replace("http://", "").split(".")[0]
         print("\n" + "=" * 70)
         print("[!] NOTICE: SUPABASE_URL in .env is an HTTPS REST URL.")
         print("To connect directly to Supabase PostgreSQL, please set `DATABASE_URL` in .env:")

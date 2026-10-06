@@ -8,13 +8,23 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+import urllib.parse
+
+
 def _clean_dsn(dsn_or_url: Optional[str]) -> Optional[str]:
     if not dsn_or_url:
         return None
     url = dsn_or_url.strip()
-    if url.startswith("postgresql://") or url.startswith("postgres://"):
-        return url
-    return None
+    if not (url.startswith("postgresql://") or url.startswith("postgres://")):
+        return None
+    if "@" in url:
+        prefix, rest = url.split("://", 1)
+        userinfo, hostinfo = rest.rsplit("@", 1)
+        if ":" in userinfo:
+            user, password = userinfo.split(":", 1)
+            encoded_password = urllib.parse.quote(password)
+            return f"{prefix}://{user}:{encoded_password}@{hostinfo}"
+    return url
 
 
 db_env_url = os.getenv("DATABASE_URL")
