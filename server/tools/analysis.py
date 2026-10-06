@@ -274,7 +274,7 @@ def get_account_usage_profile(
                 total AS (
                     SELECT SUM(usage_count) AS total_count FROM usage
                 )
-                SELECT u.gl_account, txt.name AS account_name, u.usage_count,
+                SELECT u.gl_account, txt.short_text AS account_name, u.usage_count,
                        ROUND((u.usage_count::numeric / t.total_count::numeric) * 100, 2) AS usage_pct
                 FROM usage u
                 CROSS JOIN total t

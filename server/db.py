@@ -124,20 +124,20 @@ def _get_sqlite_conn() -> SQLiteConnectionWrapper:
 @contextmanager
 def get_reader_connection() -> Generator[Any, None, None]:
     """Provides a read-only connection, falling back to local SQLite if PostgreSQL is unreachable."""
+    conn = None
     if READER_DSN:
         try:
             import psycopg
             from psycopg.rows import dict_row
-            conn = psycopg.connect(READER_DSN, row_factory=dict_row, connect_timeout=2)
-            try:
-                yield conn
-                return
-            finally:
-                conn.close()
+            conn = psycopg.connect(READER_DSN, row_factory=dict_row, connect_timeout=15)
+            conn.execute("SET search_path = finance, public;")
+            conn.commit()
         except Exception:
-            pass
-    # Fallback to local SQLite database
-    conn = _get_sqlite_conn()
+            conn = None
+
+    if conn is None:
+        conn = _get_sqlite_conn()
+
     try:
         yield conn
     finally:
@@ -147,20 +147,20 @@ def get_reader_connection() -> Generator[Any, None, None]:
 @contextmanager
 def get_writer_connection() -> Generator[Any, None, None]:
     """Provides a validated write connection, falling back to local SQLite if PostgreSQL is unreachable."""
+    conn = None
     if WRITER_DSN:
         try:
             import psycopg
             from psycopg.rows import dict_row
-            conn = psycopg.connect(WRITER_DSN, row_factory=dict_row, connect_timeout=2)
-            try:
-                yield conn
-                return
-            finally:
-                conn.close()
+            conn = psycopg.connect(WRITER_DSN, row_factory=dict_row, connect_timeout=15)
+            conn.execute("SET search_path = finance, public;")
+            conn.commit()
         except Exception:
-            pass
-    # Fallback to local SQLite database
-    conn = _get_sqlite_conn()
+            conn = None
+
+    if conn is None:
+        conn = _get_sqlite_conn()
+
     try:
         yield conn
     finally:
@@ -170,20 +170,20 @@ def get_writer_connection() -> Generator[Any, None, None]:
 @contextmanager
 def get_admin_connection() -> Generator[Any, None, None]:
     """Provides an admin connection, falling back to local SQLite if PostgreSQL is unreachable."""
+    conn = None
     if ADMIN_DSN:
         try:
             import psycopg
             from psycopg.rows import dict_row
-            conn = psycopg.connect(ADMIN_DSN, row_factory=dict_row, connect_timeout=2)
-            try:
-                yield conn
-                return
-            finally:
-                conn.close()
+            conn = psycopg.connect(ADMIN_DSN, row_factory=dict_row, connect_timeout=15)
+            conn.execute("SET search_path = finance, public;")
+            conn.commit()
         except Exception:
-            pass
-    # Fallback to local SQLite database
-    conn = _get_sqlite_conn()
+            conn = None
+
+    if conn is None:
+        conn = _get_sqlite_conn()
+
     try:
         yield conn
     finally:

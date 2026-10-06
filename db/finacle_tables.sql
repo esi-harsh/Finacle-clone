@@ -730,12 +730,27 @@ INSERT INTO document_number_ranges VALUES
  ('100','1000','19',2026, 190000000, 199999999, 189999999);
 
 -- ---------------------------------------------------------------------
--- Example: post a balanced G/L document (run inside one transaction)
+-- 10. AUDIT & DRAFT TABLES FOR MULTI-AGENT TWIN
 -- ---------------------------------------------------------------------
--- BEGIN;
---   INSERT INTO journal_entry_headers (client_id, company_code, fiscal_year, document_number,
---          document_type, document_date, posting_date, currency, header_text, created_by)
---   VALUES ('100','1000',2026, next_document_number('100','1000','SA',2026),
---          'SA', DATE '2026-10-05', DATE '2026-10-05', 'USD', 'Initial capital', 'TWIN_USER');
---   -- then insert two lines (debit 0000100000 +10000.00, credit 0000300000 -10000.00)
--- COMMIT;   -- balance and min-line checks fire here
+CREATE TABLE IF NOT EXISTS tool_call_log (
+    call_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    input_json JSONB NOT NULL,
+    output_summary TEXT,
+    error_code TEXT,
+    duration_ms INTEGER,
+    called_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS draft_entries (
+    draft_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id TEXT NOT NULL,
+    idempotency_key TEXT UNIQUE,
+    draft_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    payload_json JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    approved_at TIMESTAMPTZ,
+    approved_by TEXT
+);

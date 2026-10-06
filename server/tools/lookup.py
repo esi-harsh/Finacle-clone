@@ -194,18 +194,24 @@ def lookup_master_data(
             if norm_type == "gl_account":
                 if id:
                     acc_num = str(id).zfill(10)
+                    params: list[Any] = [acc_num]
+                    cc_filter = ""
+                    if company_code:
+                        cc_filter = "AND s.company_code = %s"
+                        params.append(company_code)
+
                     cur.execute(
-                        """
-                        SELECT a.gl_account, a.account_group, a.is_balance_sheet, a.is_blocked AS chart_blocked,
-                               t.name AS account_name,
-                               s.company_code, s.is_open_item_managed, s.is_blocked AS company_blocked,
-                               s.reconciliation_account_type, s.allowed_currency
+                        f"""
+                        SELECT a.gl_account, a.account_group, a.statement_type, a.is_blocked AS chart_blocked,
+                               t.short_text AS account_name,
+                               s.company_code, s.is_open_item_managed, s.is_blocked_for_posting AS company_blocked,
+                               s.reconciliation_account_type, s.account_currency AS allowed_currency
                         FROM finance.gl_accounts a
-                        LEFT JOIN finance.gl_account_texts t ON a.client_id = t.client_id AND a.gl_account = t.gl_account AND t.language = 'EN'
+                        LEFT JOIN finance.gl_account_texts t ON a.client_id = t.client_id AND a.chart_of_accounts = t.chart_of_accounts AND a.gl_account = t.gl_account AND t.language = 'EN'
                         LEFT JOIN finance.gl_account_company_settings s ON a.client_id = s.client_id AND a.gl_account = s.gl_account
-                        WHERE a.gl_account = %s AND (s.company_code = %s OR %s IS NULL)
+                        WHERE a.gl_account = %s {cc_filter}
                         """,
-                        (acc_num, company_code, company_code),
+                        params,
                     )
                     records = cur.fetchall()
                     if not records:
@@ -214,13 +220,13 @@ def lookup_master_data(
                 elif search_text:
                     cur.execute(
                         """
-                        SELECT a.gl_account, a.account_group, a.is_balance_sheet, t.name AS account_name
+                        SELECT a.gl_account, a.account_group, a.statement_type, t.short_text AS account_name
                         FROM finance.gl_accounts a
-                        JOIN finance.gl_account_texts t ON a.client_id = t.client_id AND a.gl_account = t.gl_account
-                        WHERE t.name ILIKE %s
+                        JOIN finance.gl_account_texts t ON a.client_id = t.client_id AND a.chart_of_accounts = t.chart_of_accounts AND a.gl_account = t.gl_account
+                        WHERE t.short_text ILIKE %s OR t.long_text ILIKE %s
                         LIMIT 20
                         """,
-                        (f"%{search_text}%",),
+                        (f"%{search_text}%", f"%{search_text}%"),
                     )
                     return {"object_type": object_type, "records": cur.fetchall()}
 

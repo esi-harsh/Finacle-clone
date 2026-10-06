@@ -33,7 +33,7 @@ def log_tool_call(tool_name: str) -> Callable:
             try:
                 result = func(*args, **kwargs)
                 if isinstance(result, dict):
-                    output_summary = json.dumps(result)[:500]
+                    output_summary = json.dumps(result, default=str)[:500]
                 elif hasattr(result, "model_dump_json"):
                     output_summary = result.model_dump_json()[:500]
                 else:
@@ -60,7 +60,7 @@ def log_tool_call(tool_name: str) -> Callable:
                                     call_id,
                                     session_id,
                                     tool_name,
-                                    json.dumps(input_data),
+                                    json.dumps(input_data, default=str),
                                     output_summary,
                                     error_code,
                                     duration_ms,

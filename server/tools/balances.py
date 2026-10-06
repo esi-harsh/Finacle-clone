@@ -26,11 +26,21 @@ def get_trial_balance(
     """Retrieve trial balance summing per-account debits and credits up to the given period."""
     with get_reader_connection() as conn:
         with conn.cursor() as cur:
-            # Query trial balance by aggregating journal_entry_lines up to the given posting period
             try:
                 cur.execute(
                     """
-                    SELECT l.gl_account, txt.name AS account_name, a.account_group, a.is_balance_sheet,
+                    SELECT gl_account, account_name, statement_type,
+                           debit_total, credit_total, balance
+                    FROM finance.trial_balance('200', %s, %s, %s, %s)
+                    """,
+                    (ledger, company_code, fiscal_year, period),
+                )
+                rows = cur.fetchall()
+            except Exception:
+                cur.execute(
+                    """
+                    SELECT l.gl_account, COALESCE(txt.short_text, l.gl_account) AS account_name,
+                           a.account_group, COALESCE(a.statement_type, 'BALANCE_SHEET') AS statement_type,
                            SUM(CASE WHEN l.debit_credit_indicator = 'D' THEN l.amount_company_currency ELSE 0 END) AS debit_total,
                            SUM(CASE WHEN l.debit_credit_indicator = 'C' THEN l.amount_company_currency ELSE 0 END) AS credit_total,
                            SUM(l.amount_company_currency) AS balance
@@ -38,21 +48,8 @@ def get_trial_balance(
                     LEFT JOIN finance.gl_accounts a ON a.client_id = l.client_id AND a.gl_account = l.gl_account
                     LEFT JOIN finance.gl_account_texts txt ON txt.client_id = l.client_id AND txt.gl_account = l.gl_account AND txt.language = 'EN'
                     WHERE l.company_code = %s AND l.fiscal_year = %s AND l.posting_period <= %s AND l.ledger = %s
-                    GROUP BY l.gl_account, txt.name, a.account_group, a.is_balance_sheet
+                    GROUP BY l.gl_account, txt.short_text, a.account_group, a.statement_type
                     ORDER BY l.gl_account
-                    """,
-                    (company_code, fiscal_year, period, ledger),
-                )
-                rows = cur.fetchall()
-            except Exception:
-                cur.execute(
-                    """
-                    SELECT t.gl_account, txt.name AS account_name, a.account_group, a.is_balance_sheet,
-                           t.debit_total, t.credit_total, t.balance
-                    FROM finance.trial_balance('200', %s, %s, %s, %s) t
-                    LEFT JOIN finance.gl_accounts a ON a.client_id = '200' AND a.gl_account = t.gl_account
-                    LEFT JOIN finance.gl_account_texts txt ON txt.client_id = '200' AND txt.gl_account = t.gl_account AND txt.language = 'EN'
-                    ORDER BY t.gl_account
                     """,
                     (company_code, fiscal_year, period, ledger),
                 )

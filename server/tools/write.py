@@ -36,95 +36,119 @@ def validate_journal_entry(
 
     with get_writer_connection() as conn:
         try:
-            with conn.cursor() as cur:
-                # 1. Fetch next temporary document number for simulation
-                temp_doc_num = "9900000001"
-                try:
-                    cur.execute(
-                        "SELECT finance.next_document_number('200', %s, %s, %s) AS next_doc",
-                        (company_code, document_type, fiscal_year),
-                    )
-                    row = cur.fetchone()
-                    if row and row.get("next_doc"):
-                        temp_doc_num = row["next_doc"]
-                except Exception:
+            tx = conn.transaction() if hasattr(conn, "transaction") else None
+            try:
+                if tx:
+                    tx.__enter__()
+                with conn.cursor() as cur:
+                    # 1. Fetch next temporary document number for simulation
                     temp_doc_num = "9900000001"
+                    try:
+                        cur.execute(
+                            "SELECT finance.next_document_number('200', %s, %s, %s) AS next_doc",
+                            (company_code, document_type, fiscal_year),
+                        )
+                        row = cur.fetchone()
+                        if row and row.get("next_doc"):
+                            temp_doc_num = row["next_doc"]
+                    except Exception:
+                        temp_doc_num = "9900000001"
 
-                # 2. Insert Header (triggers header_validate)
-                cur.execute(
-                    """
-                    INSERT INTO finance.journal_entry_headers
-                      (client_id, company_code, fiscal_year, document_number, document_type,
-                       document_date, posting_date, currency, exchange_rate, external_reference,
-                       header_text, created_by)
-                    VALUES
-                      ('200', %s, %s, %s, %s, %s, %s, %s, 1.0, %s, %s, 'AGENT_VALIDATE')
-                    """,
-                    (
-                        company_code,
-                        fiscal_year,
-                        temp_doc_num,
-                        document_type,
-                        document_date,
-                        posting_date,
-                        currency,
-                        external_reference,
-                        header_text,
-                    ),
-                )
-
-                # 3. Insert Lines (triggers line_validate & balance checks)
-                tb_impact = []
-                for idx, line in enumerate(lines, start=1):
-                    gl_acc = str(line["gl_account"]).zfill(10)
-                    dc_ind = line["debit_credit"].upper()
-                    raw_amount = abs(float(line["amount"]))
-                    amount = raw_amount if dc_ind == "D" else -raw_amount
-
+                    # 2. Insert Header (triggers header_validate)
                     cur.execute(
                         """
-                        INSERT INTO finance.journal_entry_lines
-                          (client_id, ledger, company_code, fiscal_year, document_number, line_number,
-                           account_type, gl_account, debit_credit_indicator, transaction_currency,
-                           amount_transaction_currency, amount_company_currency, amount_group_currency,
-                           cost_center, profit_center, line_text)
+                        INSERT INTO finance.journal_entry_headers
+                          (client_id, company_code, fiscal_year, document_number, document_type,
+                           document_date, posting_date, currency, exchange_rate, external_reference,
+                           header_text, created_by)
                         VALUES
-                          ('200', '0L', %s, %s, %s, %s, 'GL', %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                          ('200', %s, %s, %s, %s, %s, %s, %s, 1.0, %s, %s, 'AGENT_VALIDATE')
                         """,
                         (
                             company_code,
                             fiscal_year,
                             temp_doc_num,
-                            idx,
-                            gl_acc,
-                            dc_ind,
+                            document_type,
+                            document_date,
+                            posting_date,
                             currency,
-                            amount,
-                            amount,
-                            amount,
-                            line.get("cost_center"),
-                            line.get("profit_center"),
-                            line.get("line_text"),
+                            external_reference,
+                            header_text,
                         ),
                     )
 
-                    tb_impact.append({
-                        "gl_account": gl_acc,
-                        "debit_credit": dc_ind,
-                        "change_amount": amount,
-                    })
+                    # 3. Insert Lines (triggers line_validate & balance checks)
+                    tb_impact = []
+                    for idx, line in enumerate(lines, start=1):
+                        gl_acc = str(line["gl_account"]).zfill(10)
+                        dc_ind = line["debit_credit"].upper()
+                        raw_amount = abs(float(line["amount"]))
+                        amount = raw_amount if dc_ind == "D" else -raw_amount
 
-                # Always roll back to guarantee zero persistence
-                conn.rollback()
+                        cur.execute(
+                            """
+                            INSERT INTO finance.journal_entry_lines
+                              (client_id, ledger, company_code, fiscal_year, document_number, line_number,
+                               account_type, gl_account, debit_credit_indicator, transaction_currency,
+                               amount_transaction_currency, amount_company_currency, amount_group_currency,
+                               cost_center, profit_center, line_text)
+                            VALUES
+                              ('200', '0L', %s, %s, %s, %s, 'GL', %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """,
+                            (
+                                company_code,
+                                fiscal_year,
+                                temp_doc_num,
+                                idx,
+                                gl_acc,
+                                dc_ind,
+                                currency,
+                                amount,
+                                amount,
+                                amount,
+                                line.get("cost_center"),
+                                line.get("profit_center"),
+                                line.get("line_text"),
+                            ),
+                        )
 
+                        tb_impact.append({
+                            "gl_account": gl_acc,
+                            "debit_credit": dc_ind,
+                            "change_amount": amount,
+                        })
+
+                    # Always roll back to guarantee zero persistence
+                    if tx:
+                        import psycopg
+                        raise psycopg.Rollback()
+                    else:
+                        conn.rollback()
+
+                    return {
+                        "valid": True,
+                        "errors": [],
+                        "message": "Validation succeeded. Entry is balanced and all posting constraints are satisfied.",
+                        "trial_balance_impact": tb_impact,
+                    }
+            finally:
+                if tx:
+                    try:
+                        tx.__exit__(None, None, None)
+                    except Exception:
+                        pass
+        except Exception as ex:
+            if hasattr(ex, "__class__") and ex.__class__.__name__ == "Rollback":
                 return {
                     "valid": True,
                     "errors": [],
                     "message": "Validation succeeded. Entry is balanced and all posting constraints are satisfied.",
                     "trial_balance_impact": tb_impact,
                 }
-        except Exception as ex:
-            conn.rollback()
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             db_err = map_db_error(str(ex))
             return {
                 "valid": False,
