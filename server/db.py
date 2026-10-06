@@ -11,7 +11,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DEFAULT_URL = os.getenv("SUPABASE_URL") or os.getenv("DATABASE_URL")
+db_env_url = os.getenv("DATABASE_URL") or os.getenv("SUPABASE_URL", "")
+DEFAULT_URL = db_env_url if db_env_url.startswith("postgres") else None
+
 READER_DSN = os.getenv("READER_DSN") or DEFAULT_URL or "postgresql://twin_reader:reader_password@localhost:5432/twin"
 WRITER_DSN = os.getenv("WRITER_DSN") or DEFAULT_URL or "postgresql://twin_writer:writer_password@localhost:5432/twin"
 ADMIN_DSN = os.getenv("ADMIN_DSN") or DEFAULT_URL or "postgresql://postgres:postgres@localhost:5432/twin"
